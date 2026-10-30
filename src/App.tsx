@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+﻿import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { Home } from './pages/Home'
 import { StreamlinePathline } from './pages/StreamlinePathline'
@@ -11,7 +11,7 @@ import { HeadLines } from './pages/HeadLines'
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/Fluid-dynamics-vision">
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
