@@ -1,130 +1,147 @@
 import { useCallback, useState } from 'react'
-import { CanvasStage } from '../components/CanvasStage'
+import {
+  CanvasStage,
+  clearStage,
+  drawChip,
+  speedRgb,
+  stageFontPx,
+} from '../components/CanvasStage'
+import { Legend, PlayButton, Readouts } from '../components/VizChrome'
+
+const G = 9.81
+
+function zPipe(s: number) {
+  return 0.35 - 0.08 * s
+}
+
+function diam(s: number) {
+  const throat = Math.exp(-(((s - 0.5) / 0.12) ** 2))
+  return 0.55 - 0.28 * throat
+}
 
 /** 简化文丘里管：沿中心线展示 z、p/γ、v²/2g 三项互换，总水头近似恒定 */
 export function Bernoulli() {
   const [playing, setPlaying] = useState(true)
-  const [loss, setLoss] = useState(0) // 0 = ideal
+  const [loss, setLoss] = useState(0)
   const [Q, setQ] = useState(1)
+
+  const inlet = headAt(0, Q, loss)
+  const throat = headAt(0.5, Q, loss)
 
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => {
-      ctx.fillStyle = '#0b1220'
-      ctx.fillRect(0, 0, w, h)
+      clearStage(ctx, w, h)
 
-      const pad = 48
-      const plotW = w - pad * 2
-      const plotH = h - pad * 2 - 40
-      const baseY = pad + plotH
-
-      // pipe centerline height profile (z) — slight slope + throat dip for geometry
-      const zPipe = (s: number) => 0.35 - 0.08 * s // mild drop
-      // diameter profile: wide - narrow - wide
-      const diam = (s: number) => {
-        const throat = Math.exp(-Math.pow((s - 0.5) / 0.12, 2))
-        return 0.55 - 0.28 * throat
+      const top = h * 0.1
+      const bot = h * 0.12
+      const left = w * 0.07
+      const right = w * 0.05
+      let minV = Infinity
+      let maxV = -Infinity
+      for (let i = 0; i <= 80; i++) {
+        const sample = headAt(i / 80, Q, loss)
+        minV = Math.min(minV, sample.z, sample.piez, sample.H)
+        maxV = Math.max(maxV, sample.z, sample.piez, sample.H)
       }
+      const span = Math.max(0.25, maxV - minV)
+      minV -= span * 0.16
+      maxV += span * 0.2
+      const sy = (val: number) =>
+        top + (1 - (val - minV) / (maxV - minV)) * (h - top - bot)
+      const sx = (s: number) => left + s * (w - left - right)
 
-      // reference scales
-      const g = 9.81
-      const Aref = diam(0)
-      const v = (s: number) => (Q * Aref) / diam(s) // relative
-      const vHead = (s: number) => (v(s) * v(s)) / (2 * g) * 8 // visual scale
-      const zHead = (s: number) => zPipe(s)
-      // total H0 at inlet
-      const H0 = zHead(0) + 0.55 + vHead(0)
-      const headLoss = (s: number) => loss * s * 0.35
-      const pHead = (s: number) => H0 - zHead(s) - vHead(s) - headLoss(s)
+      let rScale = Math.min(h * 0.09, 64)
+      const d0 = diam(0)
+      for (let pass = 0; pass < 2; pass++) {
+        for (let i = 0; i <= 40; i++) {
+          const s = i / 40
+          const c = sy(zPipe(s))
+          const r = rScale * (diam(s) / d0)
+          const room = Math.min(c - 8, h - 8 - c)
+          if (room > 6 && r > room) rScale *= room / r
+        }
+      }
+      const radiusAt = (s: number) => rScale * (diam(s) / d0)
 
-      const sx = (s: number) => pad + s * plotW
-      const sy = (val: number) => baseY - val * plotH
-
-      // pipe walls
-      ctx.strokeStyle = '#64748b'
-      ctx.lineWidth = 2
       ctx.beginPath()
-      for (let i = 0; i <= 60; i++) {
-        const s = i / 60
+      for (let i = 0; i <= 70; i++) {
+        const s = i / 70
         const x = sx(s)
-        const yc = sy(zPipe(s) + 0.15)
-        const r = diam(s) * 55
-        if (i === 0) ctx.moveTo(x, yc - r)
-        else ctx.lineTo(x, yc - r)
+        const y = sy(zPipe(s)) - radiusAt(s)
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
       }
-      for (let i = 60; i >= 0; i--) {
-        const s = i / 60
-        const x = sx(s)
-        const yc = sy(zPipe(s) + 0.15)
-        const r = diam(s) * 55
-        ctx.lineTo(x, yc + r)
+      for (let i = 70; i >= 0; i--) {
+        const s = i / 70
+        ctx.lineTo(sx(s), sy(zPipe(s)) + radiusAt(s))
       }
       ctx.closePath()
-      ctx.fillStyle = 'rgba(56,189,248,0.08)'
+      ctx.fillStyle = 'rgba(56,189,248,0.14)'
       ctx.fill()
+      ctx.strokeStyle = '#94a3b8'
+      ctx.lineWidth = Math.max(2, h * 0.004)
       ctx.stroke()
 
-      // flowing particles along center
-      for (let i = 0; i < 16; i++) {
-        const s = (i / 16 + t * 0.15 * Q) % 1
-        const x = sx(s)
-        const yc = sy(zPipe(s) + 0.15)
+      const v0 = headAt(0, Q, loss).v
+      const vT = headAt(0.5, Q, loss).v
+      for (let i = 0; i < 18; i++) {
+        const s = (i / 18 + t * 0.12 * Q) % 1
+        const sample = headAt(s, Q, loss)
+        const u = (sample.v - v0) / Math.max(1e-6, vT - v0)
         ctx.beginPath()
-        ctx.arc(x, yc, 3, 0, Math.PI * 2)
-        ctx.fillStyle = '#38bdf8'
+        ctx.arc(sx(s), sy(zPipe(s)), Math.max(3.5, h * 0.008), 0, Math.PI * 2)
+        ctx.fillStyle = speedRgb(u)
         ctx.fill()
       }
 
-      // head curves
-      const drawCurve = (
-        fn: (s: number) => number,
-        color: string,
-        label: string,
-        ly: number,
-      ) => {
+      const curves: { fn: (s: number) => number; color: string; width: number }[] = [
+        { fn: (s) => headAt(s, Q, loss).z, color: '#86efac', width: Math.max(2, h * 0.004) },
+        { fn: (s) => headAt(s, Q, loss).piez, color: '#fbbf24', width: Math.max(2.6, h * 0.0055) },
+        { fn: (s) => headAt(s, Q, loss).H, color: '#f472b6', width: Math.max(2.8, h * 0.006) },
+      ]
+      curves.forEach((curve) => {
         ctx.beginPath()
-        for (let i = 0; i <= 60; i++) {
-          const s = i / 60
+        for (let i = 0; i <= 80; i++) {
+          const s = i / 80
           const x = sx(s)
-          const y = sy(fn(s) + 0.05)
+          const y = sy(curve.fn(s))
           if (i === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         }
-        ctx.strokeStyle = color
-        ctx.lineWidth = 2
+        ctx.strokeStyle = curve.color
+        ctx.lineWidth = curve.width
         ctx.stroke()
-        ctx.fillStyle = color
-        ctx.font = '12px system-ui'
-        ctx.fillText(label, pad, ly)
+      })
+
+      const tx = sx(0.5)
+      const ty = sy(zPipe(0.5))
+      const tr = radiusAt(0.5)
+      ctx.strokeStyle = '#fbbf24'
+      ctx.lineWidth = 1.5
+      ctx.setLineDash([4, 4])
+      ctx.beginPath()
+      ctx.moveTo(tx, ty - tr)
+      ctx.lineTo(tx, ty + tr)
+      ctx.stroke()
+      ctx.setLineDash([])
+
+      let dipY = ty + tr
+      for (let i = 0; i <= 24; i++) {
+        const s = 0.3 + (0.4 * i) / 24
+        dipY = Math.max(dipY, sy(headAt(s, Q, loss).piez))
       }
-
-      drawCurve((s) => zHead(s), '#86efac', 'z 位置水头', 20)
-      drawCurve(
-        (s) => zHead(s) + pHead(s),
-        '#fbbf24',
-        'z + p/γ 测压管水头',
-        38,
-      )
-      drawCurve(
-        (s) => zHead(s) + pHead(s) + vHead(s),
-        '#f472b6',
-        'H = z + p/γ + v²/2g 总水头',
-        56,
-      )
-
-      // marker at throat
-      const st = 0.5
-      ctx.fillStyle = '#e2e8f0'
-      ctx.font = '12px system-ui'
-      ctx.fillText('喉部：v↑ → 压强水头↓', sx(st) - 40, sy(0.9))
-
-      ctx.fillStyle = '#94a3b8'
-      ctx.fillText(
-        loss === 0
-          ? '理想（无损失）：总水头近似水平'
-          : '有损失：总水头沿程下降',
-        pad,
-        h - 14,
-      )
+      const fontPx = stageFontPx(w, h, 0.042)
+      const labelX = Math.min(w - fontPx * 2.6, Math.max(fontPx * 2.6, tx))
+      let labelY = dipY + fontPx * 1.55
+      const floor = h - fontPx * 0.8
+      if (labelY > floor) labelY = floor
+      ctx.strokeStyle = '#fbbf24'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(tx, dipY)
+      ctx.lineTo(labelX, labelY - fontPx * 0.7)
+      ctx.stroke()
+      drawChip(ctx, 'v↑→p↓', labelX, labelY, '#fbbf24', fontPx)
     },
     [Q, loss],
   )
@@ -140,9 +157,7 @@ export function Bernoulli() {
         。几何上各项都是「水头」。喉部流速大 → 流速水头大 → 压强水头变小。
       </p>
       <div className="controls">
-        <button type="button" onClick={() => setPlaying((p) => !p)}>
-          {playing ? '暂停' : '播放'}
-        </button>
+        <PlayButton playing={playing} onToggle={() => setPlaying((p) => !p)} />
         <label className="seg">
           <span>相对流量 {Q.toFixed(2)}</span>
           <input
@@ -166,12 +181,60 @@ export function Bernoulli() {
           />
         </label>
       </div>
-      <div className="viz-frame">
-        <CanvasStage draw={draw} playing={playing} />
+      <div className="viz-block">
+        <div className="viz-frame">
+          <CanvasStage draw={draw} playing={playing} />
+        </div>
+        <Legend
+          items={[
+            { color: '#86efac', label: '位置水头 z', kind: 'line' },
+            { color: '#fbbf24', label: '测压管水头 z + p/γ', kind: 'line' },
+            { color: '#f472b6', label: '总水头 H = z + p/γ + v²/2g', kind: 'line' },
+            { color: '#fbbf24', label: '喉部 v↑→p↓' },
+          ]}
+        />
+        <Readouts
+          items={[
+            { label: '入口流速（相对）', value: inlet.v.toFixed(2) },
+            { label: '喉部流速（相对）', value: throat.v.toFixed(2), tone: '#fbbf24' },
+            { label: '入口测压管水头', value: inlet.piez.toFixed(2) },
+            {
+              label: '喉部测压管水头',
+              value: throat.piez.toFixed(2),
+              tone: '#fbbf24',
+            },
+            {
+              label: loss === 0 ? '总水头（理想，沿程不变）' : '入口总水头',
+              value: inlet.H.toFixed(2),
+              tone: '#f472b6',
+            },
+            {
+              label: '出口总水头',
+              value: headAt(1, Q, loss).H.toFixed(2),
+              tone: '#f472b6',
+            },
+          ]}
+        />
       </div>
       <p className="hint">
-        绿：位置水头；黄：测压管水头；粉：总水头。调大流量看喉部压强水头更低。
+        {loss === 0
+          ? '理想（无损失）：总水头线接近水平。喉部标注 v↑→p↓：流速上升，压强水头下降。'
+          : '有损失：总水头沿程下降。喉部仍是流速增大、压强水头降低（v↑→p↓）。'}
+        调大流量可看到喉部测压管水头降得更低。三条水头线都留在画布内。
       </p>
     </div>
   )
+}
+
+function headAt(s: number, Q: number, loss: number) {
+  const z = zPipe(s)
+  const v = (Q * diam(0)) / diam(s)
+  const vHead = ((v * v) / (2 * G)) * 8
+  const z0 = zPipe(0)
+  const v0 = (Q * diam(0)) / diam(0)
+  const vHead0 = ((v0 * v0) / (2 * G)) * 8
+  const H0 = z0 + 0.55 + vHead0
+  const hw = loss * s * 0.35
+  const pHead = H0 - z - vHead - hw
+  return { z, v, vHead, piez: z + pHead, H: z + pHead + vHead }
 }

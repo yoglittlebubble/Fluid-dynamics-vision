@@ -1,9 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   CanvasStage,
+  clearStage,
   drawPolyline,
   worldToPixel,
 } from '../components/CanvasStage'
+import { Legend, PlayButton, Readouts } from '../components/VizChrome'
 import {
   integratePathline,
   integrateStreamline,
@@ -39,9 +41,9 @@ export function StreamlinePathline() {
         pendingCapture.current = false
       }
 
-      ctx.fillStyle = '#0b1220'
-      ctx.fillRect(0, 0, w, h)
-      ctx.strokeStyle = 'rgba(148,163,184,0.12)'
+      clearStage(ctx, w, h)
+      const lw = Math.max(1.15, Math.min(w, h) * 0.0026)
+      ctx.strokeStyle = 'rgba(148,163,184,0.14)'
       ctx.lineWidth = 1
       for (let i = 0; i <= 8; i++) {
         const x = (i / 8) * w
@@ -57,7 +59,8 @@ export function StreamlinePathline() {
       }
 
       const o = worldToPixel(0, 0, w, h)
-      ctx.strokeStyle = 'rgba(148,163,184,0.35)'
+      ctx.strokeStyle = 'rgba(148,163,184,0.4)'
+      ctx.lineWidth = lw
       ctx.beginPath()
       ctx.moveTo(0, o.py)
       ctx.lineTo(w, o.py)
@@ -76,10 +79,10 @@ export function StreamlinePathline() {
         }
         seeds.forEach((s) => {
           const line = integrateStreamline(field, s, t, 80, 0.04)
-          drawPolyline(ctx, line, w, h, 'rgba(56,189,248,0.5)', 1.15)
+          drawPolyline(ctx, line, w, h, 'rgba(56,189,248,0.55)', lw)
         })
         const hi = integrateStreamline(field, seed, t, 120, 0.035)
-        drawPolyline(ctx, hi, w, h, '#38bdf8', 2.4)
+        drawPolyline(ctx, hi, w, h, '#38bdf8', Math.max(2.6, lw * 2.1))
       }
 
       if (showPath) {
@@ -87,43 +90,24 @@ export function StreamlinePathline() {
         const elapsed = Math.max(0, t - startT)
         const steps = Math.min(450, Math.floor(elapsed / 0.02) + 1)
         const path = integratePathline(field, seed, startT, steps, 0.02)
-        drawPolyline(ctx, path, w, h, '#fbbf24', 2.2)
+        drawPolyline(ctx, path, w, h, '#fbbf24', Math.max(2.4, lw * 2))
         if (path.length) {
           const tip = path[path.length - 1]
           const { px, py } = worldToPixel(tip.x, tip.y, w, h)
           ctx.beginPath()
-          ctx.arc(px, py, 5, 0, Math.PI * 2)
+          ctx.arc(px, py, Math.max(5, Math.min(w, h) * 0.012), 0, Math.PI * 2)
           ctx.fillStyle = '#fbbf24'
           ctx.fill()
         }
       }
 
-      {
-        const { px, py } = worldToPixel(seed.x, seed.y, w, h)
-        ctx.beginPath()
-        ctx.arc(px, py, 6, 0, Math.PI * 2)
-        ctx.fillStyle = '#f472b6'
-        ctx.fill()
-        ctx.fillStyle = '#e2e8f0'
-        ctx.font = '12px system-ui'
-        ctx.fillText('种子点', px + 10, py - 8)
-      }
-
-      ctx.font = '13px system-ui'
-      ctx.fillStyle = '#38bdf8'
-      ctx.fillText('— 流线（瞬时）', 16, 24)
-      ctx.fillStyle = '#fbbf24'
-      ctx.fillText('— 迹线（质点路径）', 16, 44)
-      ctx.fillStyle = '#94a3b8'
-      ctx.fillText(
-        mode === 'steady'
-          ? '恒定流：流线位置不变，且与迹线重合'
-          : '非恒定流：瞬时流线随时间变，与迹线分离',
-        16,
-        h - 16,
-      )
+      const { px, py } = worldToPixel(seed.x, seed.y, w, h)
+      ctx.beginPath()
+      ctx.arc(px, py, Math.max(7, Math.min(w, h) * 0.014), 0, Math.PI * 2)
+      ctx.fillStyle = '#f472b6'
+      ctx.fill()
     },
-    [field, mode, seed, showPath, showStream],
+    [field, seed, showPath, showStream],
   )
 
   const handleClick = useCallback((x: number, y: number) => {
@@ -144,9 +128,7 @@ export function StreamlinePathline() {
       </p>
 
       <div className="controls">
-        <button type="button" onClick={() => setPlaying((p) => !p)}>
-          {playing ? '暂停' : '播放'}
-        </button>
+        <PlayButton playing={playing} onToggle={() => setPlaying((p) => !p)} />
         <label className="seg">
           <span>流场</span>
           <select
@@ -189,12 +171,33 @@ export function StreamlinePathline() {
         </button>
       </div>
 
-      <div className="viz-frame">
-        <CanvasStage draw={draw} playing={playing} onClickWorld={handleClick} />
+      <div className="viz-block">
+        <div className="viz-frame">
+          <CanvasStage draw={draw} playing={playing} onClickWorld={handleClick} />
+        </div>
+        <Legend
+          items={[
+            { color: '#38bdf8', label: '流线（同一瞬时）', kind: 'line' },
+            { color: '#fbbf24', label: '迹线（质点路径）', kind: 'line' },
+            { color: '#f472b6', label: '种子点' },
+          ]}
+        />
+        <Readouts
+          items={[
+            {
+              label: '流场',
+              value: mode === 'steady' ? '恒定' : '非恒定',
+            },
+            { label: '种子点 x', value: seed.x.toFixed(2) },
+            { label: '种子点 y', value: seed.y.toFixed(2), tone: '#f472b6' },
+          ]}
+        />
       </div>
       <p className="hint">
-        点击画布投放示踪质点（粉点）。蓝线 = 瞬时流线，黄线 =
-        迹线。切换「非恒定」后观察二者分离。
+        {mode === 'steady'
+          ? '恒定流：流线不随时间移动，并与迹线重合。同一时刻的流线彼此不相交。'
+          : '非恒定流：同一瞬时的流线仍互不相交，但形状会随时间改变，因而与迹线分开。'}
+        点击画布可改种子点。
       </p>
     </div>
   )

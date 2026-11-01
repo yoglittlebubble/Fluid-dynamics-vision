@@ -1,5 +1,11 @@
 import { useCallback, useState } from 'react'
-import { CanvasStage } from '../components/CanvasStage'
+import {
+  CanvasStage,
+  clearStage,
+  stageFont,
+  stageFontPx,
+} from '../components/CanvasStage'
+import { Legend, PlayButton, Readouts } from '../components/VizChrome'
 
 export function HeadLines() {
   const [playing, setPlaying] = useState(true)
@@ -8,113 +14,105 @@ export function HeadLines() {
 
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => {
-      ctx.fillStyle = '#0b1220'
-      ctx.fillRect(0, 0, w, h)
+      clearStage(ctx, w, h)
 
-      const padL = 50
-      const padR = 30
-      const padT = 40
-      const padB = 50
-      const plotW = w - padL - padR
-      const plotH = h - padT - padB
+      const left = w * 0.08
+      const right = w * 0.06
+      const top = h * 0.1
+      const bottom = h * 0.1
+      const plotW = w - left - right
+      const plotH = h - top - bottom
+      const pipeHalf = Math.max(16, plotH * 0.055)
+      const pipeY = top + plotH * 0.82
+      const zY = pipeY - pipeHalf - Math.max(16, h * 0.03)
+      const headTop = top + Math.max(18, h * 0.03)
+      const headBottom = zY - Math.max(20, h * 0.045)
+      const room = Math.max(48, headBottom - headTop)
+      const vGap = (vHead / 0.5) * room * 0.42
+      const drop = lossFactor * room * 0.48
+      const H0 = headTop
+      const piez0 = H0 + vGap
 
-      // pipe along bottom-ish
-      const pipeY = padT + plotH * 0.75
-      ctx.strokeStyle = '#64748b'
-      ctx.lineWidth = 20
+      ctx.lineCap = 'butt'
+      ctx.strokeStyle = '#475569'
+      ctx.lineWidth = pipeHalf * 2
       ctx.beginPath()
-      ctx.moveTo(padL, pipeY)
-      ctx.lineTo(padL + plotW, pipeY)
+      ctx.moveTo(left, pipeY)
+      ctx.lineTo(left + plotW, pipeY)
       ctx.stroke()
-      ctx.strokeStyle = 'rgba(56,189,248,0.3)'
-      ctx.lineWidth = 14
+      ctx.strokeStyle = 'rgba(56,189,248,0.38)'
+      ctx.lineWidth = pipeHalf * 1.15
       ctx.beginPath()
-      ctx.moveTo(padL, pipeY)
-      ctx.lineTo(padL + plotW, pipeY)
+      ctx.moveTo(left, pipeY)
+      ctx.lineTo(left + plotW, pipeY)
       ctx.stroke()
 
-      // particles
-      for (let i = 0; i < 12; i++) {
-        const x = padL + ((i / 12 + t * 0.2) % 1) * plotW
+      const count = 14
+      for (let i = 0; i < count; i++) {
+        const x = left + ((i / count + t * 0.18) % 1) * plotW
         ctx.beginPath()
-        ctx.arc(x, pipeY, 3, 0, Math.PI * 2)
-        ctx.fillStyle = '#38bdf8'
+        ctx.arc(x, pipeY, Math.max(3.5, pipeHalf * 0.28), 0, Math.PI * 2)
+        ctx.fillStyle = '#7dd3fc'
         ctx.fill()
       }
 
-      const H0 = padT + plotH * 0.15
-      const piez0 = H0 + vHead * plotH * 0.5
-
-      // total head line (sloping if loss)
+      ctx.lineCap = 'round'
       ctx.strokeStyle = '#f472b6'
-      ctx.lineWidth = 2
+      ctx.lineWidth = Math.max(2.6, h * 0.005)
       ctx.beginPath()
-      ctx.moveTo(padL, H0)
-      ctx.lineTo(padL + plotW, H0 + lossFactor * plotH * 0.35)
+      ctx.moveTo(left, H0)
+      ctx.lineTo(left + plotW, H0 + drop)
       ctx.stroke()
 
-      // piezometric = total - v²/2g (parallel-ish below total)
       ctx.strokeStyle = '#fbbf24'
+      ctx.lineWidth = Math.max(2.4, h * 0.0045)
       ctx.beginPath()
-      ctx.moveTo(padL, piez0)
-      ctx.lineTo(padL + plotW, piez0 + lossFactor * plotH * 0.35)
+      ctx.moveTo(left, piez0)
+      ctx.lineTo(left + plotW, piez0 + drop)
       ctx.stroke()
 
-      // geometric height of pipe centerline ≈ constant z
       ctx.strokeStyle = '#86efac'
-      ctx.setLineDash([6, 4])
+      ctx.lineWidth = Math.max(2, h * 0.004)
+      ctx.setLineDash([7, 5])
       ctx.beginPath()
-      ctx.moveTo(padL, pipeY - 30)
-      ctx.lineTo(padL + plotW, pipeY - 30)
+      ctx.moveTo(left, zY)
+      ctx.lineTo(left + plotW, zY)
       ctx.stroke()
       ctx.setLineDash([])
 
-      // manometer sticks at several stations
-      for (let i = 0; i < 5; i++) {
-        const s = i / 4
-        const x = padL + s * plotW
-        const piezY = piez0 + s * lossFactor * plotH * 0.35
-        ctx.strokeStyle = 'rgba(148,163,184,0.5)'
+      for (let i = 0; i < 6; i++) {
+        const s = i / 5
+        const x = left + s * plotW
+        const piezY = piez0 + s * drop
+        ctx.strokeStyle = 'rgba(148,163,184,0.45)'
+        ctx.lineWidth = 1.5
         ctx.beginPath()
-        ctx.moveTo(x, pipeY)
+        ctx.moveTo(x, pipeY - pipeHalf)
         ctx.lineTo(x, piezY)
         ctx.stroke()
-        ctx.fillStyle = 'rgba(56,189,248,0.35)'
-        ctx.fillRect(x - 4, piezY, 8, pipeY - piezY)
+        ctx.fillStyle = 'rgba(56,189,248,0.38)'
+        ctx.fillRect(x - 5, piezY, 10, pipeY - pipeHalf - piezY)
       }
 
-      // velocity head bracket at inlet
       ctx.strokeStyle = '#a78bfa'
+      ctx.lineWidth = 2
       ctx.beginPath()
-      ctx.moveTo(padL + 8, H0)
-      ctx.lineTo(padL + 8, piez0)
+      ctx.moveTo(left + 14, H0)
+      ctx.lineTo(left + 14, piez0)
+      ctx.moveTo(left + 8, H0)
+      ctx.lineTo(left + 20, H0)
+      ctx.moveTo(left + 8, piez0)
+      ctx.lineTo(left + 20, piez0)
       ctx.stroke()
+      const fontPx = stageFontPx(w, h, 0.034)
+      ctx.font = stageFont(w, h, 0.034, 650)
       ctx.fillStyle = '#a78bfa'
-      ctx.font = '12px system-ui'
-      ctx.fillText('v²/2g', padL + 14, (H0 + piez0) / 2)
-
-      ctx.fillStyle = '#f472b6'
-      ctx.fillText('总水头线 H', padL + plotW - 90, H0 + lossFactor * plotH * 0.35 - 8)
-      ctx.fillStyle = '#fbbf24'
-      ctx.fillText(
-        '测压管水头线 z+p/γ',
-        padL + plotW - 130,
-        piez0 + lossFactor * plotH * 0.35 - 8,
-      )
-      ctx.fillStyle = '#86efac'
-      ctx.fillText('管路高程 z', padL + 8, pipeY - 38)
-
-      ctx.fillStyle = '#94a3b8'
-      ctx.fillText(
-        lossFactor < 0.05
-          ? '理想无损失：总水头线水平'
-          : '有沿程损失：总水头线与测压管水头线平行下降',
-        padL,
-        h - 16,
-      )
+      ctx.fillText('v²/2g', left + 24, (H0 + piez0) / 2 + fontPx * 0.35)
     },
     [lossFactor, vHead],
   )
+
+  const ideal = lossFactor < 0.05
 
   return (
     <div className="page">
@@ -126,9 +124,7 @@ export function HeadLines() {
         的连线。二者竖距为流速水头。有损失时总水头沿程下降；等径管中测压管水头线与总水头线大致平行。
       </p>
       <div className="controls">
-        <button type="button" onClick={() => setPlaying((p) => !p)}>
-          {playing ? '暂停' : '播放'}
-        </button>
+        <PlayButton playing={playing} onToggle={() => setPlaying((p) => !p)} />
         <label className="seg">
           <span>损失强度 {lossFactor.toFixed(2)}</span>
           <input
@@ -152,9 +148,42 @@ export function HeadLines() {
           />
         </label>
       </div>
-      <div className="viz-frame">
-        <CanvasStage draw={draw} playing={playing} />
+      <div className="viz-block">
+        <div className="viz-frame">
+          <CanvasStage draw={draw} playing={playing} />
+        </div>
+        <Legend
+          items={[
+            { color: '#f472b6', label: '总水头线 H', kind: 'line' },
+            { color: '#fbbf24', label: '测压管水头线 z + p/γ', kind: 'line' },
+            { color: '#86efac', label: '管路高程 z', kind: 'dashed' },
+            { color: '#a78bfa', label: '流速水头 v²/2g', kind: 'line' },
+          ]}
+        />
+        <Readouts
+          items={[
+            {
+              label: '沿程损失',
+              value: ideal ? '理想，总水头水平' : '总水头沿程下降',
+              tone: '#f472b6',
+            },
+            {
+              label: '流速水头比例',
+              value: vHead.toFixed(2),
+              tone: '#a78bfa',
+            },
+            {
+              label: '两线关系',
+              value: '竖距 = v²/2g，等径时平行',
+            },
+          ]}
+        />
       </div>
+      <p className="hint">
+        {ideal
+          ? '理想无损失：总水头线保持水平，测压管水头线在其下方，间距为流速水头。'
+          : '有沿程损失：总水头线与测压管水头线一起下降，等径管中二者仍大致平行。'}
+      </p>
     </div>
   )
 }
