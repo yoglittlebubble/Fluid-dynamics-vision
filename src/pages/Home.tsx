@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { TopicPreview } from '../components/TopicPreview'
 
 const CARDS = [
   {
@@ -49,6 +50,7 @@ export function Home() {
       <div className="card-grid">
         {CARDS.map((c) => (
           <Link key={c.to} to={c.to} className="topic-card">
+            <TopicPreview topic={c.to} />
             <h2>{c.title}</h2>
             <p>{c.desc}</p>
             <span className="card-go">进入演示 →</span>

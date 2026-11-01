@@ -1,5 +1,14 @@
 import { useCallback, useMemo, useState } from 'react'
-import { CanvasStage, worldToPixel } from '../components/CanvasStage'
+import {
+  CanvasStage,
+  clearStage,
+  drawArrow,
+  speedRgb,
+  stageFont,
+  stageFontPx,
+  worldToPixel,
+} from '../components/CanvasStage'
+import { Legend, PlayButton, Readouts } from '../components/VizChrome'
 import { convergingDuct, rk4, type Vec2 } from '../physics/fields'
 
 export function Continuity() {
@@ -10,17 +19,34 @@ export function Continuity() {
 
   const particlesRef = useMemo(() => {
     const list: Vec2[] = []
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 42; i++) {
+      const x = -1.5 + (i / 41) * 3.05
+      const half = Math.max(0.25, 1 - 0.22 * Math.max(0, x))
       list.push({
-        x: -1.5 + Math.random() * 0.4,
-        y: (Math.random() - 0.5) * 1.4,
+        x,
+        y: (Math.random() - 0.5) * 2 * half * 0.82,
       })
     }
     return { current: list }
   }, [])
   const lastT = useMemo(() => ({ current: 0 }), [])
 
-  const halfAt = (x: number) => Math.max(0.25, 1 - taper * Math.max(0, x))
+  const halfAt = useCallback(
+    (x: number) => Math.max(0.25, 1 - taper * Math.max(0, x)),
+    [taper],
+  )
+
+  const sections = useMemo(() => {
+    const x1 = -1.0
+    const x2 = 0.9
+    const h1 = halfAt(x1)
+    const h2 = halfAt(x2)
+    const A1 = 2 * h1
+    const A2 = 2 * h2
+    const v1 = U0 / h1
+    const v2 = U0 / h2
+    return { x1, x2, h1, h2, A1, A2, v1, v2, Q: v1 * A1 }
+  }, [U0, halfAt])
 
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => {
@@ -31,101 +57,95 @@ export function Continuity() {
         particlesRef.current = particlesRef.current.map((p) => {
           let np = rk4(field, p, t - dt, dt)
           const half = halfAt(np.x)
-          if (Math.abs(np.y) > half * 0.95) np.y *= 0.9
-          if (np.x > 1.6 || np.x < -1.7) {
+          if (Math.abs(np.y) > half * 0.92) np = { ...np, y: np.y * 0.88 }
+          if (np.x > 1.55 || np.x < -1.65) {
             return {
               x: -1.55,
-              y: (Math.random() - 0.5) * 2 * halfAt(-1.55) * 0.85,
+              y: (Math.random() - 0.5) * 2 * halfAt(-1.55) * 0.8,
             }
           }
           return np
         })
       }
 
-      ctx.fillStyle = '#0b1220'
-      ctx.fillRect(0, 0, w, h)
+      clearStage(ctx, w, h)
 
-      // duct walls
-      const wallPtsTop: { x: number; y: number }[] = []
-      const wallPtsBot: { x: number; y: number }[] = []
-      for (let i = 0; i <= 40; i++) {
-        const x = -1.6 + (3.2 * i) / 40
-        const half = halfAt(x)
-        wallPtsTop.push({ x, y: half })
-        wallPtsBot.push({ x, y: -half })
+      const wall = (ySign: number) => {
+        ctx.beginPath()
+        for (let i = 0; i <= 48; i++) {
+          const x = -1.6 + (3.2 * i) / 48
+          const { px, py } = worldToPixel(x, ySign * halfAt(x), w, h)
+          if (i === 0) ctx.moveTo(px, py)
+          else ctx.lineTo(px, py)
+        }
+        ctx.strokeStyle = '#cbd5e1'
+        ctx.lineWidth = Math.max(2.2, Math.min(w, h) * 0.005)
+        ctx.stroke()
       }
-      ctx.beginPath()
-      wallPtsTop.forEach((p, i) => {
-        const { px, py } = worldToPixel(p.x, p.y, w, h)
-        if (i === 0) ctx.moveTo(px, py)
-        else ctx.lineTo(px, py)
-      })
-      ctx.strokeStyle = '#94a3b8'
-      ctx.lineWidth = 2
-      ctx.stroke()
-      ctx.beginPath()
-      wallPtsBot.forEach((p, i) => {
-        const { px, py } = worldToPixel(p.x, p.y, w, h)
-        if (i === 0) ctx.moveTo(px, py)
-        else ctx.lineTo(px, py)
-      })
-      ctx.stroke()
+      wall(1)
+      wall(-1)
 
-      // sections A1 A2
-      const x1 = -1.0
-      const x2 = 0.9
-      const h1 = halfAt(x1)
-      const h2 = halfAt(x2)
-      const drawSection = (x: number, half: number, label: string) => {
+      const mark = (x: number, half: number, label: string) => {
         const a = worldToPixel(x, half, w, h)
         const b = worldToPixel(x, -half, w, h)
         ctx.strokeStyle = '#38bdf8'
-        ctx.setLineDash([4, 4])
+        ctx.lineWidth = Math.max(1.6, Math.min(w, h) * 0.003)
+        ctx.setLineDash([6, 5])
         ctx.beginPath()
         ctx.moveTo(a.px, a.py)
         ctx.lineTo(b.px, b.py)
         ctx.stroke()
         ctx.setLineDash([])
+        const fontPx = stageFontPx(w, h, 0.04)
+        ctx.font = stageFont(w, h, 0.04, 700)
         ctx.fillStyle = '#38bdf8'
-        ctx.font = '13px system-ui'
-        ctx.fillText(label, a.px + 6, a.py - 6)
+        ctx.fillText(label, a.px + 8, Math.max(fontPx + 4, a.py - 6))
       }
-      drawSection(x1, h1, '断面 1')
-      drawSection(x2, h2, '断面 2')
+      mark(sections.x1, sections.h1, '1')
+      mark(sections.x2, sections.h2, '2')
 
-      // particles
+      const sMin = U0 / halfAt(-1.4)
+      const sMax = U0 / halfAt(1.3)
+      const k = Math.min(w, h) / 520
       particlesRef.current.forEach((p) => {
+        const v = field(p.x, p.y, t)
+        const speed = Math.hypot(v.x, v.y)
+        const u = (speed - sMin) / Math.max(1e-6, sMax - sMin)
+        const color = speedRgb(u)
         const { px, py } = worldToPixel(p.x, p.y, w, h)
+        const ahead = worldToPixel(p.x + v.x, p.y + v.y, w, h)
+        const dx = ahead.px - px
+        const dy = ahead.py - py
+        const plen = Math.hypot(dx, dy) || 1
+        const r = (4.2 + Math.max(0, Math.min(1, u)) * 2.4) * Math.max(0.85, k)
+        const len = (16 + Math.max(0, Math.min(1, u)) * 18) * Math.max(0.9, k)
+        const ux = dx / plen
+        const uy = dy / plen
+        drawArrow(
+          ctx,
+          px + ux * r,
+          py + uy * r,
+          px + ux * (r + len),
+          py + uy * (r + len),
+          color,
+          Math.max(2.2, 2.6 * k),
+        )
         ctx.beginPath()
-        ctx.arc(px, py, 3.5, 0, Math.PI * 2)
-        ctx.fillStyle = '#fbbf24'
+        ctx.arc(px, py, r, 0, Math.PI * 2)
+        ctx.fillStyle = color
         ctx.fill()
       })
 
-      // continuity numbers (2D "area" ~ height)
-      const A1 = 2 * h1
-      const A2 = 2 * h2
-      const v1 = U0 / h1 // consistent with field scaling roughly
-      const v2 = U0 / h2
-      const Q1 = v1 * A1
-      const Q2 = v2 * A2
-
-      ctx.fillStyle = '#e2e8f0'
-      ctx.font = '13px system-ui'
-      ctx.fillText(
-        `示意：A₁≈${A1.toFixed(2)}  v₁≈${v1.toFixed(2)}  Q₁=v₁A₁≈${Q1.toFixed(2)}`,
-        16,
-        28,
-      )
-      ctx.fillText(
-        `　　　A₂≈${A2.toFixed(2)}  v₂≈${v2.toFixed(2)}  Q₂=v₂A₂≈${Q2.toFixed(2)}`,
-        16,
-        48,
-      )
-      ctx.fillStyle = '#86efac'
-      ctx.fillText('不可压缩：Q₁ = Q₂（流量守恒）→ 断面越小，流速越大', 16, h - 16)
+      const sectionArrow = (x: number, speed: number) => {
+        const u = (speed - sMin) / Math.max(1e-6, sMax - sMin)
+        const p = worldToPixel(x, 0, w, h)
+        const len = (36 + Math.max(0, Math.min(1, u)) * 48) * Math.max(0.9, k)
+        drawArrow(ctx, p.px - len * 0.15, p.py, p.px + len, p.py, speedRgb(u), Math.max(3, 3.4 * k))
+      }
+      sectionArrow(sections.x1, sections.v1)
+      sectionArrow(sections.x2, sections.v2)
     },
-    [U0, field, halfAt, lastT, particlesRef],
+    [U0, field, halfAt, lastT, particlesRef, sections.h1, sections.h2, sections.x1, sections.x2],
   )
 
   return (
@@ -136,9 +156,7 @@ export function Continuity() {
         。管道收缩时断面面积减小，平均流速增大。下方用「管道高度」模拟面积变化。
       </p>
       <div className="controls">
-        <button type="button" onClick={() => setPlaying((p) => !p)}>
-          {playing ? '暂停' : '播放'}
-        </button>
+        <PlayButton playing={playing} onToggle={() => setPlaying((p) => !p)} />
         <label className="seg">
           <span>收缩强度 {taper.toFixed(2)}</span>
           <input
@@ -162,10 +180,30 @@ export function Continuity() {
           />
         </label>
       </div>
-      <div className="viz-frame">
-        <CanvasStage draw={draw} playing={playing} />
+      <div className="viz-block">
+        <div className="viz-frame">
+          <CanvasStage draw={draw} playing={playing} />
+        </div>
+        <Legend
+          items={[
+            { color: '#38bdf8', label: '低速 → 高速', kind: 'speed' },
+            { color: '#fbbf24', label: '箭头表示流向', kind: 'line' },
+            { color: '#38bdf8', label: '断面 1 / 断面 2', kind: 'dashed' },
+          ]}
+        />
+        <Readouts
+          items={[
+            { label: '断面 1 面积 A₁', value: sections.A1.toFixed(2) },
+            { label: '断面 1 流速 v₁', value: sections.v1.toFixed(2), tone: '#38bdf8' },
+            { label: '断面 2 面积 A₂', value: sections.A2.toFixed(2) },
+            { label: '断面 2 流速 v₂', value: sections.v2.toFixed(2), tone: '#fbbf24' },
+            { label: '流量 Q = vA（两断面相同）', value: sections.Q.toFixed(2), tone: '#86efac' },
+          ]}
+        />
       </div>
-      <p className="hint">观察收缩段粒子间距被拉开（速度增大），流量示意保持相等。</p>
+      <p className="hint">
+        粒子颜色随速率由青变黄，箭头沿当地速度方向。收缩段粒子被拉开，表示流速增大，流量仍守恒。
+      </p>
     </div>
   )
 }

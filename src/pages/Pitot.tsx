@@ -1,121 +1,168 @@
 import { useCallback, useState } from 'react'
-import { CanvasStage } from '../components/CanvasStage'
+import {
+  CanvasStage,
+  clearStage,
+  drawArrow,
+  stageFont,
+  stageFontPx,
+} from '../components/CanvasStage'
+import { Legend, PlayButton, Readouts } from '../components/VizChrome'
+
+const RHO = 1000
+const G = 9.81
 
 export function Pitot() {
   const [playing, setPlaying] = useState(true)
-  const [U, setU] = useState(3.5) // m/s free stream
-  const rho = 1000
-  const g = 9.81
+  const [U, setU] = useState(3.5)
+
+  const dP = 0.5 * RHO * U * U
+  const dH = dP / (RHO * G)
+  const uBack = Math.sqrt((2 * dP) / RHO)
 
   const draw = useCallback(
     (ctx: CanvasRenderingContext2D, w: number, h: number, t: number) => {
-      ctx.fillStyle = '#0b1220'
-      ctx.fillRect(0, 0, w, h)
+      clearStage(ctx, w, h)
 
-      const tubeX = w * 0.45
-      const tubeY = h * 0.42
-      const tipX = tubeX - 70
+      const tubeY = h * 0.5
+      const noseR = Math.max(18, h * 0.072)
+      const tipX = w * 0.36
+      const bodyEnd = tipX + noseR + w * 0.24
+      const flowLeft = w * 0.04
+      const flowTop = h * 0.14
+      const flowBot = h * 0.86
 
-      // free stream arrows
-      for (let row = 0; row < 6; row++) {
-        const y = h * 0.2 + row * 28
-        for (let col = 0; col < 5; col++) {
-          const x = 30 + col * 40 + ((t * 40 * U) / 3.5 + row * 10) % 40
-          if (x > tipX - 20) continue
-          ctx.strokeStyle = 'rgba(56,189,248,0.55)'
-          ctx.beginPath()
-          ctx.moveTo(x, y)
-          ctx.lineTo(x + 16, y)
-          ctx.stroke()
+      const rows = 8
+      const cols = 6
+      const colGap = (tipX - noseR - flowLeft - 10) / cols
+      for (let row = 0; row < rows; row++) {
+        const y = flowTop + ((flowBot - flowTop) * row) / (rows - 1)
+        for (let col = 0; col < cols; col++) {
+          const x =
+            flowLeft +
+            col * colGap +
+            ((t * 70 * (U / 3.5) + row * 14) % colGap)
+          if (x > tipX - noseR - 16) continue
+          const len = Math.max(18, colGap * 0.46)
+          drawArrow(
+            ctx,
+            x,
+            y,
+            x + len,
+            y,
+            'rgba(56,189,248,0.8)',
+            Math.max(1.8, h * 0.004),
+          )
         }
       }
 
-      // streamlines bending around tip (schematic)
-      ctx.strokeStyle = 'rgba(148,163,184,0.45)'
-      for (let i = -3; i <= 3; i++) {
+      ctx.strokeStyle = 'rgba(148,163,184,0.55)'
+      ctx.lineWidth = Math.max(1.5, h * 0.0035)
+      const spread = (flowBot - flowTop) / 9
+      for (let i = -4; i <= 4; i++) {
         if (i === 0) continue
         ctx.beginPath()
-        for (let s = 0; s < 80; s++) {
-          const x = 20 + s * 3
-          const y =
-            tubeY +
-            i * 18 +
-            (i > 0 ? 1 : -1) * 25 * Math.exp(-Math.pow((x - tipX) / 40, 2))
+        const steps = 80
+        for (let s = 0; s <= steps; s++) {
+          const x = flowLeft + ((bodyEnd - flowLeft) * s) / steps
+          const bump =
+            Math.sign(i) *
+            spread *
+            0.95 *
+            Math.exp(-(((x - tipX) / (w * 0.055)) ** 2))
+          const y = tubeY + i * spread + bump
           if (s === 0) ctx.moveTo(x, y)
           else ctx.lineTo(x, y)
         }
         ctx.stroke()
       }
 
-      // pitot body
+      const noseCx = tipX + noseR
       ctx.fillStyle = '#cbd5e1'
       ctx.beginPath()
-      ctx.moveTo(tipX, tubeY)
-      ctx.arc(tipX + 12, tubeY, 12, Math.PI * 0.5, Math.PI * 1.5, true)
-      ctx.lineTo(tubeX + 90, tubeY - 12)
-      ctx.lineTo(tubeX + 90, tubeY + 12)
+      ctx.arc(noseCx, tubeY, noseR, Math.PI / 2, Math.PI * 1.5, false)
+      ctx.lineTo(bodyEnd, tubeY - noseR)
+      ctx.lineTo(bodyEnd, tubeY + noseR)
       ctx.closePath()
       ctx.fill()
 
-      // stagnation hole
       ctx.fillStyle = '#f472b6'
       ctx.beginPath()
-      ctx.arc(tipX, tubeY, 4, 0, Math.PI * 2)
+      ctx.arc(tipX, tubeY, Math.max(5, noseR * 0.22), 0, Math.PI * 2)
       ctx.fill()
-      ctx.fillStyle = '#f472b6'
-      ctx.font = '12px system-ui'
-      ctx.fillText('A 驻点 (v=0)', tipX - 30, tubeY - 22)
 
-      // static holes
+      ctx.font = stageFont(w, h, 0.04, 700)
+      ctx.fillStyle = '#f472b6'
+      ctx.textAlign = 'center'
+      ctx.fillText('A', tipX, tubeY - noseR - 10)
+      ctx.textAlign = 'left'
+
       ctx.fillStyle = '#38bdf8'
+      const holeR = Math.max(3, noseR * 0.14)
+      const hole0 = noseCx + noseR * 0.85
       for (let i = 0; i < 4; i++) {
         ctx.beginPath()
-        ctx.arc(tubeX + 10 + i * 14, tubeY - 12, 2.5, 0, Math.PI * 2)
+        ctx.arc(hole0 + i * noseR * 0.55, tubeY - noseR, holeR, 0, Math.PI * 2)
         ctx.fill()
       }
-      ctx.fillText('静压孔', tubeX + 10, tubeY - 28)
 
-      // manometer
-      const dP = 0.5 * rho * U * U
-      const dH = dP / (rho * g) // water column equivalent simplified
-      const maxH = 80
-      const hPix = Math.min(maxH, dH * 40)
+      const colW = Math.max(28, Math.min(52, w * 0.046))
+      const gap = Math.max(16, w * 0.02)
+      const colH = h * 0.5
+      let mx = bodyEnd + w * 0.05
+      if (mx + colW * 2 + gap > w * 0.96) mx = w * 0.96 - colW * 2 - gap
+      const top = h * 0.16
+      const norm = Math.min(1, dH / ((8 * 8) / (2 * G)))
+      const delta = norm * colH * 0.34
+      const mid = top + colH * 0.55
+      const totalSurface = mid + delta / 2
+      const staticSurface = mid - delta / 2
 
-      const mx = tubeX + 130
-      const my = tubeY + 40
       ctx.strokeStyle = '#94a3b8'
-      ctx.strokeRect(mx, my, 36, 100)
-      ctx.strokeRect(mx + 50, my, 36, 100)
-      // connecting
+      ctx.lineWidth = Math.max(1.5, h * 0.003)
+      ctx.strokeRect(mx, top, colW, colH)
+      ctx.strokeRect(mx + colW + gap, top, colW, colH)
+
       ctx.beginPath()
-      ctx.moveTo(tubeX + 90, tubeY)
-      ctx.lineTo(mx + 18, tubeY)
-      ctx.lineTo(mx + 18, my)
+      ctx.moveTo(bodyEnd, tubeY)
+      ctx.lineTo(mx + colW / 2, tubeY)
+      ctx.lineTo(mx + colW / 2, top)
       ctx.stroke()
+      const staticX = hole0 + noseR * 0.55
       ctx.beginPath()
-      ctx.moveTo(tubeX + 40, tubeY - 12)
-      ctx.lineTo(tubeX + 40, my - 20)
-      ctx.lineTo(mx + 68, my - 20)
-      ctx.lineTo(mx + 68, my)
+      ctx.moveTo(staticX, tubeY - noseR)
+      ctx.lineTo(staticX, top - h * 0.03)
+      ctx.lineTo(mx + colW + gap + colW / 2, top - h * 0.03)
+      ctx.lineTo(mx + colW + gap + colW / 2, top)
       ctx.stroke()
 
       ctx.fillStyle = '#fbbf24'
-      ctx.fillRect(mx + 2, my + 100 - 40 - hPix / 2, 32, 40 + hPix / 2)
-      ctx.fillRect(mx + 52, my + 100 - 40 + hPix / 2, 32, 40 - hPix / 2)
-
-      ctx.fillStyle = '#e2e8f0'
-      ctx.font = '13px system-ui'
-      ctx.fillText(`Δh 示意`, mx, my + 120)
-      ctx.fillText(`来流 U = ${U.toFixed(2)} m/s`, 20, 28)
-      ctx.fillText(
-        `Δp ≈ ½ρU² = ${dP.toFixed(0)} Pa  →  U = √(2Δp/ρ)`,
-        20,
-        48,
+      ctx.fillRect(mx + 3, totalSurface, colW - 6, top + colH - totalSurface)
+      ctx.fillRect(
+        mx + colW + gap + 3,
+        staticSurface,
+        colW - 6,
+        top + colH - staticSurface,
       )
-      ctx.fillStyle = '#86efac'
-      ctx.fillText('探头正对来流；端点滞止，侧孔测静压', 20, h - 16)
+
+      const bracketX = mx + colW + gap / 2
+      ctx.strokeStyle = '#fbbf24'
+      ctx.lineWidth = 1.5
+      ctx.beginPath()
+      ctx.moveTo(bracketX, totalSurface)
+      ctx.lineTo(bracketX, staticSurface)
+      ctx.moveTo(bracketX - 5, totalSurface)
+      ctx.lineTo(bracketX + 5, totalSurface)
+      ctx.moveTo(bracketX - 5, staticSurface)
+      ctx.lineTo(bracketX + 5, staticSurface)
+      ctx.stroke()
+      const fontPx = stageFontPx(w, h, 0.034)
+      ctx.font = stageFont(w, h, 0.034, 700)
+      ctx.fillStyle = '#fbbf24'
+      ctx.textAlign = 'center'
+      ctx.fillText('Δh', bracketX, Math.max(fontPx + 2, staticSurface - fontPx * 0.35))
+      ctx.textAlign = 'left'
     },
-    [U],
+    [U, dH],
   )
 
   return (
@@ -126,9 +173,7 @@ export function Pitot() {
         <strong>U = √(2Δp/ρ)</strong>（Δp 为总压与静压差）。演示为示意比例，非真实水银柱刻度。
       </p>
       <div className="controls">
-        <button type="button" onClick={() => setPlaying((p) => !p)}>
-          {playing ? '暂停' : '播放'}
-        </button>
+        <PlayButton playing={playing} onToggle={() => setPlaying((p) => !p)} />
         <label className="seg">
           <span>来流速度 U {U.toFixed(1)} m/s</span>
           <input
@@ -141,9 +186,30 @@ export function Pitot() {
           />
         </label>
       </div>
-      <div className="viz-frame">
-        <CanvasStage draw={draw} playing={playing} />
+      <div className="viz-block">
+        <div className="viz-frame">
+          <CanvasStage draw={draw} playing={playing} />
+        </div>
+        <Legend
+          items={[
+            { color: '#38bdf8', label: '来流', kind: 'line' },
+            { color: '#f472b6', label: '驻点 A（v = 0，总压）' },
+            { color: '#38bdf8', label: '静压孔' },
+            { color: '#fbbf24', label: '压差水柱 Δh（静压侧更高）' },
+          ]}
+        />
+        <Readouts
+          items={[
+            { label: '来流速度 U', value: `${U.toFixed(2)} m/s`, tone: '#38bdf8' },
+            { label: '压差 Δp ≈ ½ρU²', value: `${dP.toFixed(0)} Pa` },
+            { label: '水柱差 Δh = Δp / (ρg)', value: `${dH.toFixed(3)} m`, tone: '#fbbf24' },
+            { label: '反算 U = √(2Δp/ρ)', value: `${uBack.toFixed(2)} m/s`, tone: '#86efac' },
+          ]}
+        />
       </div>
+      <p className="hint">
+        总压高于静压，液体被推向静压侧，所以右侧液柱更高。Δh 只作示意，不按水银柱刻度绘制。
+      </p>
     </div>
   )
 }
